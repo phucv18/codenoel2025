@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Hạt Tương Tác Cử Chỉ Tay</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+
+        /* Canvas và Video ẩn */
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #input-video {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 160px;
+            height: 120px;
+            border-radius: 10px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            z-index: 2;
+            transform: scaleX(-1); /* Lật video gương */
+            opacity: 0.7;
+        }
+
+        /* Giao diện UI */
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(20, 20, 30, 0.6);
+            backdrop-filter: blur(15px);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            width: 280px;
+            transition: transform 0.3s ease;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0 0 15px 0;
+            font-weight: 600;
+            color: #00d2ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+
+        /* Select Box đẹp */
+        select {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            border-radius: 8px;
+            outline: none;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        select:hover { border-color: #00d2ff; }
+
+        /* Color Picker */
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: none;
+        }
+
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 210, 255, 0.3);
+        }
+        .btn:active { transform: translateY(0); }
+
+        /* Trạng thái */
+        #status {
+            font-size: 12px;
+            margin-top: 10px;
+            color: #00ff88;
+            text-align: center;
+        }
+
+        /* Loading Overlay */
+        #loader {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #00d2ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div id="loader-text">Đang khởi động Camera & AI...</div>
+    </div>
+
+    <div id="ui-panel">
+        <h1>Điều Khiển Hạt</h1>
+        
+        <div class="control-group">
+            <label>Hình Dạng</label>
+            <select id="shape-select">
+                <option value="heart">Trái Tim</option>
+                <option value="flower">Hoa</option>
+                <option value="saturn">Sao Thổ</option>
+                <option value="buddha">Tượng Phật (Trừu tượng)</option>
+                <option value="fireworks">Pháo Hoa</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Màu Sắc</label>
+            <input type="color" id="color-picker" value="#00d2ff">
+        </div>
+
+        <button class="btn" id="fullscreen-btn">Toàn Màn Hình</button>
+        
+        <div id="status">Đang đợi tay...</div>
+        
+        <div style="margin-top: 15px; font-size: 11px; color: #666; line-height: 1.4;">
+            <strong style="color: #fff">Hướng dẫn:</strong><br>
+            👐 <b>Khoảng cách 2 tay:</b> Phóng to/nhỏ.<br>
+            ✊ <b>Nắm tay:</b> Gom hạt (Thu nhỏ).<br>
+            ✋ <b>Mở tay:</b> Tán xạ hạt (Nổ).
+        </div>
+    </div>
+
+    <video id="input-video" playsinline></video>
+    
+    <div id="canvas-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script>
+        // --- 1. Cấu hình Three.js ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Hiệu ứng sương mù nhẹ để tạo chiều sâu
+        scene.fog = new THREE.FogExp2(0x050505, 0.002);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 50;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // --- 2. Hệ thống Hạt ---
+        const PARTICLE_COUNT = 15000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3); // Vị trí đích để morphing
+        
+        // Khởi tạo vị trí ngẫu nhiên
+        for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            targetPositions[i] = positions[i];
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        // Tạo texture hình tròn mềm cho hạt
+        const createSprite = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+            gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 32, 32);
+            const texture = new THREE.Texture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        };
+
+        const material = new THREE.PointsMaterial({
+            size: 0.8,
+            map: createSprite(),
+            color: 0x00d2ff,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- 3. Logic Hình Dạng (Math) ---
+        
+        // Hàm lấy điểm ngẫu nhiên trên khối cầu
+        function getSpherePoint(r) {
+            const u = Math.random();
+            const v = Math.random();
+            const theta = 2 * Math.PI * u;
+            const phi = Math.acos(2 * v - 1);
+            return {
+                x: r * Math.sin(phi) * Math.cos(theta),
+                y: r * Math.sin(phi) * Math.sin(theta),
+                z: r * Math.cos(phi)
+            };
+        }
+
+        function calculateShape(shapeType) {
+            const arr = new Float32Array(PARTICLE_COUNT * 3);
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                let x, y, z;
+                const idx = i * 3;
+
+                if (shapeType === 'heart') {
+                    // Công thức hình trái tim 3D
+                    let t = Math.random() * Math.PI * 2;
+                    let u = Math.random() * Math.PI; // phân bố lại để đầy đặn hơn
+                    // Một dạng parametric heart đơn giản
+                    const r = 10; 
+                    x = 16 * Math.pow(Math.sin(t), 3);
+                    y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                    z = (Math.random() - 0.5) * 5; // Độ dày
+                    
+                    // Scale cho to ra
+                    x *= 0.8; y *= 0.8;
+                } 
+                else if (shapeType === 'flower') {
+                    const r = 15;
+                    const u = Math.random() * Math.PI * 2;
+                    const v = Math.random() * Math.PI;
+                    // Bông hoa 5 cánh (dạng sin cực)
+                    const radius = 10 + 5 * Math.cos(5 * u) * Math.sin(v);
+                    x = radius * Math.sin(v) * Math.cos(u);
+                    y = radius * Math.sin(v) * Math.sin(u);
+                    z = radius * Math.cos(v);
+                }
+                else if (shapeType === 'saturn') {
+                    // 70% hạt làm hành tinh, 30% làm vòng
+                    if (Math.random() > 0.3) {
+                        const p = getSpherePoint(10);
+                        x = p.x; y = p.y; z = p.z;
+                    } else {
+                        // Vòng đai
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = 14 + Math.random() * 8;
+                        x = Math.cos(angle) * dist;
+                        y = (Math.random() - 0.5) * 1; // Rất mỏng
+                        z = Math.sin(angle) * dist;
+                        
+                        // Nghiêng vòng đai
+                        const tilt = 0.4; // radian
+                        let y_old = y;
+                        y = y * Math.cos(tilt) - x * Math.sin(tilt);
+                        x = x * Math.cos(tilt) + y_old * Math.sin(tilt);
+                    }
+                }
+                else if (shapeType === 'buddha') {
+                    // Tạo hình người ngồi thiền (2 khối cầu xếp chồng + chân)
+                    const dice = Math.random();
+                    if (dice < 0.25) {
+                        // Đầu
+                        const p = getSpherePoint(4.5);
+                        x = p.x; y = p.y + 8; z = p.z;
+                    } else if (dice < 0.7) {
+                        // Thân (Hình trụ/cầu dẹt)
+                        const angle = Math.random() * Math.PI * 2;
+                        const h = (Math.random() - 0.5) * 10;
+                        const r = 7 * (1 - Math.abs(h)/12); // Taper
+                        x = Math.cos(angle) * r;
+                        y = h - 2;
+                        z = Math.sin(angle) * r;
+                    } else {
+                        // Chân/Đài sen (Đĩa dẹt bên dưới)
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = 10 + Math.random() * 4;
+                        x = Math.cos(angle) * r;
+                        y = -8 + (Math.random() * 2);
+                        z = Math.sin(angle) * r;
+                    }
+                }
+                else if (shapeType === 'fireworks') {
+                    // Nổ ngẫu nhiên từ tâm
+                    const p = getSpherePoint(25 * Math.random());
+                    x = p.x; y = p.y; z = p.z;
+                }
+
+                arr[idx] = x;
+                arr[idx+1] = y;
+                arr[idx+2] = z;
+            }
+            return arr;
+        }
+
+        // Khởi tạo hình đầu tiên
+        let currentShapePoints = calculateShape('heart');
+        for(let i=0; i<targetPositions.length; i++) targetPositions[i] = currentShapePoints[i];
+
+        // --- 4. Tương tác & Animation Loop ---
+        
+        // Biến trạng thái điều khiển
+        let handDistance = 0; // 0 -> 1 (Chuẩn hóa)
+        let isRightHandClosed = false;
+        let isLeftHandClosed = false;
+        let scaleFactor = 1;
+        let dispersionFactor = 0;
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime();
+            const positions = particles.geometry.attributes.position.array;
+
+            // Xoay nhẹ toàn bộ hệ thống
+            particles.rotation.y += 0.002;
+
+            // Tốc độ morphing (biến đổi hình dạng)
+            const morphSpeed = 0.05;
+
+            // Logic tính toán scale và dispersion dựa trên tay
+            let targetScale = 1;
+            let targetDispersion = 0;
+
+            if (handDistance > 0) {
+                // Map khoảng cách tay (ví dụ 0.1 đến 0.8) thành scale (0.5 đến 2.5)
+                targetScale = 0.5 + (handDistance * 3);
+            }
+
+            // Nếu nắm tay -> Co lại (Implosion) hoặc Rung lắc
+            if (isRightHandClosed || isLeftHandClosed) {
+                targetDispersion = -0.5; // Hút vào tâm
+                if (isRightHandClosed && isLeftHandClosed) targetDispersion = -0.8; // Hút mạnh
+            } else {
+                 // Mở tay rộng -> Có thể gây hiệu ứng thở hoặc bình thường
+                 targetDispersion = 0;
+            }
+
+            // Smooth transition cho scale và dispersion
+            scaleFactor += (targetScale - scaleFactor) * 0.1;
+            dispersionFactor += (targetDispersion - dispersionFactor) * 0.1;
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const px = i * 3;
+                const py = i * 3 + 1;
+                const pz = i * 3 + 2;
+
+                // Di chuyển hạt hiện tại về phía đích (Morphing)
+                const tx = targetPositions[px];
+                const ty = targetPositions[py];
+                const tz = targetPositions[pz];
+
+                // Hiệu ứng nhiễu động (Noise) khi đứng yên để tạo cảm giác sống động
+                const noise = Math.sin(time * 2 + i) * 0.05;
+
+                // Áp dụng scale
+                let mx = tx * scaleFactor;
+                let my = ty * scaleFactor;
+                let mz = tz * scaleFactor;
+
+                // Áp dụng Dispersion (Nắm tay = hút về 0,0,0)
+                if (dispersionFactor < 0) {
+                    // Hút về tâm
+                    mx *= (1 + dispersionFactor); // Giảm biên độ
+                    my *= (1 + dispersionFactor);
+                    mz *= (1 + dispersionFactor);
+                    // Rung lắc khi nén
+                    mx += (Math.random()-0.5) * 0.5;
+                    my += (Math.random()-0.5) * 0.5;
+                    mz += (Math.random()-0.5) * 0.5;
+                }
+
+                // Cập nhật vị trí (Lerp)
+                positions[px] += (mx - positions[px]) * morphSpeed + noise;
+                positions[py] += (my - positions[py]) * morphSpeed + noise;
+                positions[pz] += (mz - positions[pz]) * morphSpeed + noise;
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- 5. MediaPipe Hands Integration ---
+        
+        const videoElement = document.getElementById('input-video');
+        const statusElement = document.getElementById('status');
+        const loader = document.getElementById('loader');
+
+        function onResults(results) {
+            // Ẩn màn hình loading khi đã nhận diện xong frame đầu tiên
+            if (loader.style.display !== 'none') {
+                loader.style.display = 'none';
+            }
+
+            let leftHand = null;
+            let rightHand = null;
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const label = results.multiHandedness[i].label;
+                    const landmarks = results.multiHandLandmarks[i];
+                    if (label === 'Left') leftHand = landmarks;
+                    if (label === 'Right') rightHand = landmarks;
+                }
+            }
+
+            // 1. Phát hiện Nắm/Mở (Sử dụng khoảng cách đầu ngón tay cái và ngón trỏ)
+            // Landmark 4: Thumb Tip, Landmark 8: Index Tip
+            const isClosed = (hand) => {
+                if (!hand) return false;
+                const dx = hand[4].x - hand[8].x;
+                const dy = hand[4].y - hand[8].y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                return dist < 0.05; // Ngưỡng nắm tay
+            };
+
+            isLeftHandClosed = isClosed(leftHand);
+            isRightHandClosed = isClosed(rightHand);
+
+            // 2. Tính khoảng cách giữa hai cổ tay (Landmark 0) để Scale
+            if (leftHand && rightHand) {
+                const dx = leftHand[0].x - rightHand[0].x;
+                const dy = leftHand[0].y - rightHand[0].y;
+                // Khoảng cách thực tế trên khung hình (0.0 đến 1.0)
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                handDistance = dist;
+                statusElement.innerText = "Đang điều khiển bằng 2 tay";
+                statusElement.style.color = "#00ff88";
+            } else {
+                // Nếu mất dấu tay, reset từ từ về mặc định (xử lý trong animate loop)
+                handDistance = 0; 
+                if(!leftHand && !rightHand) {
+                    statusElement.innerText = "Không tìm thấy tay...";
+                    statusElement.style.color = "#ff4444";
+                } else {
+                    statusElement.innerText = "Cần cả 2 tay để Scale";
+                    statusElement.style.color = "#ffff00";
+                }
+            }
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        
+        // Bắt đầu camera
+        cameraUtils.start().catch(err => {
+            console.error(err);
+            document.getElementById('loader-text').innerText = "Lỗi: Vui lòng cấp quyền Camera!";
+        });
+
+
+        // --- 6. Xử lý sự kiện UI ---
+        
+        // Đổi hình dạng
+        document.getElementById('shape-select').addEventListener('change', (e) => {
+            const newPoints = calculateShape(e.target.value);
+            // Cập nhật mảng đích
+            for(let i=0; i<targetPositions.length; i++) targetPositions[i] = newPoints[i];
+        });
+
+        // Đổi màu
+        document.getElementById('color-picker').addEventListener('input', (e) => {
+            material.color.set(e.target.value);
+        });
+
+        // Resize cửa sổ
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Fullscreen
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>

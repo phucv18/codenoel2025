@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hạt 3D - Cây Thông Noel (Fixed)</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; /* Nền đen tuyệt đối */
+            font-family: sans-serif; 
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1; 
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 30px;
+        }
+
+        #panel {
+            background: rgba(50, 50, 50, 0.8);
+            backdrop-filter: blur(5px);
+            padding: 15px 30px;
+            border-radius: 50px;
+            border: 1px solid rgba(255,255,255,0.3);
+            text-align: center;
+            pointer-events: auto;
+        }
+
+        #status-text {
+            color: #00ffcc; font-size: 24px; font-weight: bold;
+            text-transform: uppercase; margin-bottom: 5px;
+            min-height: 30px;
+            text-shadow: 0 0 10px rgba(0,255,200,0.8);
+        }
+
+        #guide {
+            color: #ddd; font-size: 13px; margin-top: 5px;
+        }
+
+        .mic-indicator {
+            width: 12px; height: 12px;
+            background: #ff3333; border-radius: 50%;
+            display: inline-block; margin-right: 8px;
+            animation: blink 1s infinite;
+            box-shadow: 0 0 5px red;
+        }
+        @keyframes blink { 50% { opacity: 0.4; } }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div id="panel">
+            <div id="status-text">Đang nghe...</div>
+            <div style="display: flex; align-items: center; justify-content: center; margin-top:5px;">
+                <span class="mic-indicator"></span>
+                <span style="color:#fff; font-size:12px;">Microphone đang bật</span>
+            </div>
+            <div id="guide">Nói: "Cây thông", Tìm", "Nổ", "To", "Nhỏ", "Reset"</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- 1. SETUP THREE.JS ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Bỏ sương mù (fog) tạm thời để đảm bảo nhìn rõ nhất
+        // scene.fog = new THREE.FogExp2(0x000000, 0.002);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 70; // Khoảng cách camera
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); // alpha false để nền chắc chắn đen
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // --- 2. TẠO HẠT ---
+        const PARTICLE_COUNT = 20000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+
+        const colorObj = new THREE.Color();
+
+        // Khởi tạo hạt ban đầu
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            // Vị trí ngẫu nhiên rộng
+            positions[i*3] = (Math.random() - 0.5) * 200;
+            positions[i*3+1] = (Math.random() - 0.5) * 200;
+            positions[i*3+2] = (Math.random() - 0.5) * 200;
+
+            // Màu trắng ban đầu để dễ thấy
+            colors[i*3] = 1.0; 
+            colors[i*3+1] = 1.0; 
+            colors[i*3+2] = 1.0;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        // Texture đốm sáng
+        const getSprite = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            
+            // Vẽ hình tròn phát sáng
+            const grad = ctx.createRadialGradient(16,16,0,16,16,16);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)'); // Trong suốt ở viền
+            
+            ctx.fillStyle = grad;
+            ctx.fillRect(0,0,32,32);
+            return new THREE.Texture(canvas);
+        };
+        
+        const sprite = getSprite();
+        sprite.needsUpdate = true; // Bắt buộc cập nhật texture
+
+        const material = new THREE.PointsMaterial({
+            size: 3.5, // KÍCH THƯỚC TO ĐỂ DỄ NHÌN
+            map: sprite,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- 3. TÍNH TOÁN HÌNH DÁNG ---
+        function getShape(type) {
+            const arr = new Float32Array(PARTICLE_COUNT * 3);
+            for(let i=0; i<PARTICLE_COUNT; i++) {
+                let x,y,z;
+                const idx = i*3;
+                
+                if(type === 'sphere') {
+                    const r = 30;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    x = r * Math.sin(phi) * Math.cos(theta);
+                    y = r * Math.sin(phi) * Math.sin(theta);
+                    z = r * Math.cos(phi);
+                }
+                else if(type === 'heart') {
+                    let t = Math.random() * Math.PI * 2;
+                    x = 16 * Math.pow(Math.sin(t), 3);
+                    y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                    z = (Math.random()-0.5) * 10;
+                    x*=1.8; y*=1.8; z*=1.8; // Phóng to tim
+                }
+                else if(type === 'tree') {
+                    // Cây thông
+                    const h = 90; // Chiều cao cây
+                    const level = i / PARTICLE_COUNT; // 0 (đáy) -> 1 (đỉnh)
+                    y = -45 + level * h;
+                    
+                    const radius = (1 - level) * 35; // Bán kính đáy 35, đỉnh 0
+                    const angle = i * 0.15; // Xoắn ốc
+                    
+                    x = Math.cos(angle) * radius + (Math.random()-0.5)*2;
+                    z = Math.sin(angle) * radius + (Math.random()-0.5)*2;
+                }
+
+                arr[idx] = x; arr[idx+1] = y; arr[idx+2] = z;
+            }
+            return arr;
+        }
+
+        // Mặc định ban đầu
+        targetPositions.set(getShape('sphere'));
+
+        // --- 4. ĐIỀU KHIỂN GIỌNG NÓI ---
+        const state = {
+            scale: 1.0,
+            explode: 0,
+            rotateSpeed: 0.002,
+            colorMode: 'rainbow' 
+        };
+
+        const statusText = document.getElementById('status-text');
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if(SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'vi-VN';
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[event.resultIndex][0].transcript.toLowerCase();
+                statusText.innerText = transcript;
+                
+                // --- XỬ LÝ LỆNH ---
+                if(transcript.includes('cây') || transcript.includes('thông') || transcript.includes('noel')) {
+                    targetPositions.set(getShape('tree'));
+                    state.explode = 0; state.scale = 1.0;
+                    state.colorMode = 'christmas';
+                }
+                else if(transcript.includes('tim') || transcript.includes('yêu')) {
+                    targetPositions.set(getShape('heart'));
+                    state.explode = 0;
+                    state.colorMode = 'heart';
+                }
+                else if(transcript.includes('tròn') || transcript.includes('cầu') || transcript.includes('reset')) {
+                    targetPositions.set(getShape('sphere'));
+                    state.explode = 0; state.scale = 1.0;
+                    state.colorMode = 'rainbow';
+                }
+                
+                if(transcript.includes('to') || transcript.includes('lớn')) state.scale = 1.5;
+                if(transcript.includes('nhỏ') || transcript.includes('bé')) state.scale = 0.6;
+                if(transcript.includes('nổ') || transcript.includes('bùm')) state.explode = 5.0;
+                if(transcript.includes('xoay')) state.rotateSpeed = 0.05;
+                if(transcript.includes('dừng')) state.rotateSpeed = 0;
+            };
+            
+            recognition.onerror = (e) => { console.log("Mic Error:", e); };
+            recognition.onend = () => recognition.start();
+            recognition.start();
+        } else {
+            statusText.innerText = "Browser ko hỗ trợ Mic";
+        }
+
+        // --- 5. ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            state.explode += (0 - state.explode) * 0.05;
+            particles.rotation.y += state.rotateSpeed;
+
+            const p = particles.geometry.attributes.position.array;
+            const c = particles.geometry.attributes.color.array;
+
+            for(let i=0; i<PARTICLE_COUNT; i++) {
+                const idx = i*3;
+                
+                // Lấy đích đến
+                const tx = targetPositions[idx];
+                const ty = targetPositions[idx+1];
+                const tz = targetPositions[idx+2];
+
+                // Biến đổi theo scale và explode
+                let mx = tx * state.scale;
+                let my = ty * state.scale;
+                let mz = tz * state.scale;
+
+                if(state.explode > 0.1) {
+                    mx += tx * state.explode;
+                    my += ty * state.explode;
+                    mz += tz * state.explode;
+                    // Màu nổ (vàng trắng)
+                    c[idx] = 1; c[idx+1] = 1; c[idx+2] = 0.5;
+                } else {
+                    // MÀU SẮC
+                    if(state.colorMode === 'christmas') {
+                        // Noel: Xanh lá chủ đạo, điểm xuyết đỏ, vàng
+                        if(i % 15 === 0) { // Đỏ (quả châu)
+                            c[idx]=1; c[idx+1]=0; c[idx+2]=0; 
+                        } else if(i % 30 === 0) { // Vàng (đèn)
+                            c[idx]=1; c[idx+1]=1; c[idx+2]=0; 
+                        } else { // Xanh lá
+                            c[idx]=0.1; c[idx+1]=0.8 + Math.sin(time+i)*0.2; c[idx+2]=0.2;
+                        }
+                    } 
+                    else if(state.colorMode === 'heart') {
+                        // Tim: Hồng/Đỏ
+                        c[idx]=1; c[idx+1]=0.1; c[idx+2]=0.4;
+                    } 
+                    else {
+                        // Cầu vồng
+                        colorObj.setHSL((time*0.1 + i*0.0002)%1, 0.8, 0.6);
+                        c[idx]=colorObj.r; c[idx+1]=colorObj.g; c[idx+2]=colorObj.b;
+                    }
+                }
+
+                // DI CHUYỂN HẠT TỪ TỪ (LERP)
+                p[idx] += (mx - p[idx]) * 0.08;
+                p[idx+1] += (my - p[idx+1]) * 0.08;
+                p[idx+2] += (mz - p[idx+2]) * 0.08;
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.color.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
